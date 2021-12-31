@@ -2,20 +2,12 @@
 
 pragma solidity 0.8.10;
 
-import "hardhat/console.sol";
+// REMOVE BEFORE DEPLOYMENT //
+import "hardhat/console.sol"; 
+// REMOVE BEFORE DEPLOYMENT //
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-
-interface iEarlyAccess {
-    function isPresale(address address_, bytes32[] memory proof_) 
-    external 
-    view 
-    returns (bool);
-    function isWhitelist(address address_, bytes32[] memory proof_) 
-    external 
-    view 
-    returns (bool);
-}
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 contract Shoeheads is ERC721, Ownable {
     // Minting prices
@@ -24,10 +16,15 @@ contract Shoeheads is ERC721, Ownable {
     // Supply variables
     uint256 public totalSupply;
     uint256 public maxPerTxn;
+    uint256 public maxPerWallet;
     uint256 public constant MAX_SUPPLY = 7777;
     uint256 public constant RESERVED = 222;
     uint256 public constant PRE_SALE_SUPPLY = 2000;
     uint256 public constant WHITELIST_SUPPLY = 4000;
+
+    // Allowlist variables
+    bytes32 public presaleRoot;
+    bytes32 public whitelistRoot;
 
     // Payout addresses
     address public _a1 = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
@@ -46,25 +43,64 @@ contract Shoeheads is ERC721, Ownable {
     // Metadata variable
     string public _baseURI_;
 
-    // Whitelist contract
-    iEarlyAccess public shEarlyAccess;
-
     // Track mints per wallet
     mapping(address => uint256) public walletMints;
+
+    // Events
+    event PresaleActive(bool _state);
+    event WhitelistActive(bool _state);
+    event RegActive(bool _state);
 
     constructor() ERC721("Shoeheads NFT", "shoeheads") {
         salePrice = 0.05 ether;
         totalSupply = 0;
-        maxPerTxn = 4;
+        maxPerTxn = 2;
+        maxPerWallet = 5;
         regActive = false;
         preSaleActive = false;
         whiteListActive = false;
 
         // Set baseURI
         _baseURI_ = "www.twitter.com";
+    }
 
-        // Set whitelist address
-        // shEarlyAccess = iEarlyAccess(address);
+    // Modifiers
+    modifier isPresaleActive() {
+        require(preSaleActive, "Presale hasn't started yet");
+        _;
+    }
+
+    modifier isWhitelistActive() {
+        require(whiteListActive, "Whitelist hasn't started yet");
+        _;
+    }
+
+    modifier isRegActive() {
+        require(regActive, "GA sale hasn't started yet");
+        _;
+    }
+
+    // Allowlist functions
+    function isPresale(bytes32[] memory merkleProof) public view returns (bool) {
+
+        bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
+        
+        return MerkleProof.verify(merkleProof, presaleRoot, leaf);
+    }
+
+    function isWhitelist(bytes32[] memory merkleProof) public view returns (bool) {
+
+        bytes32 leaf = keccak256(abi.encodePacked((msg.sender)));
+        
+        return MerkleProof.verify(merkleProof, whitelistRoot, leaf);
+    }
+
+    function updatePresaleRoot(bytes32 _presaleRoot) external onlyOwner {
+        presaleRoot = _presaleRoot;
+    }
+
+    function updateWhitelistRoot(bytes32 _whitelistRoot) external onlyOwner {
+        whitelistRoot = _whitelistRoot;
     }
 
     // Internal functions
@@ -78,12 +114,12 @@ contract Shoeheads is ERC721, Ownable {
 
     // Minting functions
     function mintTokens(uint256 quantity) private {
-        walletMints[msg.sender] += quantity;
         for (uint256 i = 0; i < quantity; i++) {
             uint256 newTokenId = totalSupply + 1;
             _safeMint(msg.sender, newTokenId);
             totalSupply++;
         }
+        walletMints[msg.sender] += quantity;
     }
 
     function mintingRules(uint256 value, uint256 quantity) private view {
@@ -92,26 +128,23 @@ contract Shoeheads is ERC721, Ownable {
         require(totalSupply < MAX_SUPPLY, "Store's cleared out");
         require(totalSupply + quantity <= MAX_SUPPLY, "Can't buy more than we have");
         require(quantity <= maxPerTxn, "Sorry, we have a limit");
-        require(walletMints[msg.sender] < 5, "No whales here");
+        require(walletMints[msg.sender] + quantity <= maxPerWallet, "No whales here");
     }
 
-    function mintPresale(uint256 quantity, bytes32[] memory proof) public payable {
-        require(preSaleActive, "Presale isn't active");
-        require(shEarlyAccess.isPresale(msg.sender, proof), "You didn't make the list");
-        require(walletMints[msg.sender] < 2, "Already got your presale tokens");
+    function mintPresale(uint256 quantity, bytes32[] memory proof_) public payable isPresaleActive {
+        require(isPresale(proof_), "You didn't make the list");
+        require(walletMints[msg.sender] + quantity <= 2, "Already got your presale tokens");
         mintingRules(msg.value, quantity);
         mintTokens(quantity);
     }
 
-    function mintWhiteList(uint256 quantity, bytes32[] memory proof) public payable {
-        require(whiteListActive, "Whitelist isn't active");
-        require(shEarlyAccess.isWhitelist(msg.sender, proof), "You didn't make the list");
+    function mintWhiteList(uint256 quantity, bytes32[] memory proof_) public payable isWhitelistActive {
+        require(isWhitelist(proof_), "You didn't make the list");
         mintingRules(msg.value, quantity);
         mintTokens(quantity);
     }
 
-    function mintPublic(uint256 quantity) public payable {
-        require(regActive, "Not active yet");
+    function mintPublic(uint256 quantity) public payable isRegActive {
         mintingRules(msg.value, quantity);
         mintTokens(quantity);
     }
@@ -129,24 +162,32 @@ contract Shoeheads is ERC721, Ownable {
         maxPerTxn = _maxPerTxn;
     }
 
+    function setMaxPerWallet(uint256 _maxPerWallet) external onlyOwner {
+        maxPerWallet = _maxPerWallet;
+    }
+
     function setBaseURI(string memory _newBaseURI) external onlyOwner {
         _baseURI_ = _newBaseURI;
     }
 
     function setRegActive() external onlyOwner {
+        maxPerTxn = 5;
+        salePrice = 0.07 ether;
         regActive = !regActive;
+        emit RegActive(regActive);
     }
 
     function setPresaleActive() external onlyOwner {
+        maxPerTxn = 2;
         preSaleActive = !preSaleActive;
+        emit PresaleActive(preSaleActive);
     }
 
     function setWhitelistActive() external onlyOwner {
+        maxPerTxn = 5;
+        salePrice = 0.07 ether;
         whiteListActive = !whiteListActive;
-    }
-
-    function setEarlyAccessAddr(address address_) external onlyOwner {
-        shEarlyAccess = iEarlyAccess(address_);
+        emit WhitelistActive(whiteListActive);
     }
 
     function withdraw() external onlyOwner {
