@@ -27,13 +27,13 @@ contract Shoeheads is ERC721, Ownable {
     bytes32 public whitelistRoot;
 
     // Payout addresses
-    address public _a1 = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
-    address public _a2 = 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2;
-    address public _a3 = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
-    address public _a4 = 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db;
-    address public _a5 = 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB;
+    address public _a1 = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4; // R
+    address public _a2 = 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2; // N
+    address public _a3 = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c; // R
+    address public _a4 = 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db; // H
+    address public _a5 = 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB; // C
     address public _a6 = 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB; // NFTY KICKS WALLET
-    address public _a7 = 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB;
+    address public _a7 = 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB; // Other, do we need?
 
     // State variables
     bool public regActive;
@@ -113,18 +113,18 @@ contract Shoeheads is ERC721, Ownable {
     }
 
     // Minting functions
-    function mintTokens(uint256 quantity) private {
+    function mintTokens(uint256 quantity, address receiver) private {
         for (uint256 i = 0; i < quantity; i++) {
             uint256 newTokenId = totalSupply + 1;
-            _safeMint(msg.sender, newTokenId);
+            _safeMint(receiver, newTokenId);
             totalSupply++;
         }
-        walletMints[msg.sender] += quantity;
+        walletMints[receiver] += quantity;
     }
 
     function mintingRules(uint256 value, uint256 quantity) private view {
         require(isContract(msg.sender) == false, "Only real soles can mint");
-        require(value == getPrice(quantity), "Not enough cash money");
+        require(value >= getPrice(quantity), "Not enough cash money");
         require(totalSupply < MAX_SUPPLY, "Store's cleared out");
         require(totalSupply + quantity <= MAX_SUPPLY, "Can't buy more than we have");
         require(quantity <= maxPerTxn, "Sorry, we have a limit");
@@ -135,18 +135,25 @@ contract Shoeheads is ERC721, Ownable {
         require(isPresale(proof_), "You didn't make the list");
         require(walletMints[msg.sender] + quantity <= 2, "Already got your presale tokens");
         mintingRules(msg.value, quantity);
-        mintTokens(quantity);
+        mintTokens(quantity, msg.sender);
     }
 
     function mintWhiteList(uint256 quantity, bytes32[] memory proof_) public payable isWhitelistActive {
         require(isWhitelist(proof_), "You didn't make the list");
         mintingRules(msg.value, quantity);
-        mintTokens(quantity);
+        mintTokens(quantity, msg.sender);
     }
 
     function mintPublic(uint256 quantity) public payable isRegActive {
         mintingRules(msg.value, quantity);
-        mintTokens(quantity);
+        mintTokens(quantity, msg.sender);
+    }
+
+    function gift(uint256 quantity, address receiver) public payable onlyOwner {
+        require(totalSupply < MAX_SUPPLY, "Store's cleared out");
+        require(totalSupply + quantity <= MAX_SUPPLY, "Can't buy more than we have");
+
+        mintTokens(quantity, receiver);
     }
 
     // Utility functions
